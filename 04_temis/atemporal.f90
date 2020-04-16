@@ -19,6 +19,8 @@
 !    2/11/2017  Huso horario se calcula con el estado
 !    5/11/2017  Actualizacion en numero de lineas totales en emiA
 !   15/11/2017  Seleccion de numero de linea mayor de los datos de entrada emiA
+!   16/12/2019  Actualizacion en indices
+!   06/04/2020  Incluye Horario de verano
 !
 module variables
 integer :: month,daytype
@@ -29,10 +31,11 @@ integer,parameter :: nh=24 ! number of hour per day
 integer :: nmax !number of max lines in emiA
 integer :: nm ! line number in emissions file
 integer :: lh ! line number in uso horario
+integer :: iverano  ! si es en periodo de verano
 integer,dimension(nf) :: nscc ! number of scc codes per file
 integer*8,dimension(nnscc) ::iscc 
 integer, allocatable :: idcel(:),idcel2(:),idcel3(:)
-integer, allocatable :: idsm(:) ! state municipality IDs emiss and usoH
+integer, allocatable :: idsm(:,:) ! state municipality IDs emiss and usoH
 real ::fweek
 real,allocatable ::emiA(:,:,:) !Area emisions from files cel,ssc,file
 real,allocatable :: emis(:,:,:) ! Emission by cel,file and hour (inorganic)
@@ -41,6 +44,7 @@ real,allocatable :: evoc(:,:,:) ! VOC emissions cel,scc and hour
 real,dimension(nnscc,nf) :: mes,dia,diap ! dia currentday, diap previous day
 real,dimension(nnscc,nf,nh):: hCST,hMST,hPST,hEST
 integer,dimension(3,nnscc,nf):: profile  ! 1=mon 2=weekday 3=hourly
+integer,allocatable :: id5(:,:) ! index per file
 character(len=3),dimension(juliano):: cdia
 character (len=19) :: current_date
 
@@ -137,6 +141,8 @@ subroutine lee
 95  continue
     close(10)
 	if(daytype.eq.0) STOP 'Error in daytype=0'
+!Horario de verano Abril 6 a octubre 26
+    iverano=kverano(idia,month)
 !
    call maxline(nmax)
 
@@ -156,18 +162,20 @@ subroutine lee
     if (nm.gt.nmax) STOP "*** ERROR: nm larger than nmax edit code line 140"
 	 rewind(10)
 	 if(k.eq.1) then
-        allocate(idcel(nm),idcel2(nm),idcel3(nm),idsm(nm))
-        allocate(emiA(nf,nmax,nnscc))
+        allocate(idcel(nm),idcel2(nm),idcel3(nm))
+        allocate(emiA(nf,nmax,nnscc),id5(nf,nmax),idsm(nf,nmax))
+        emiA=0
         idsm=0
+        id5=0
     else
-        deallocate(idcel,idcel2,idcel3,idsm)
-        allocate(idcel(nm),idcel2(nm),idcel3(nm),idsm(nm))
-        idsm=0
+        deallocate(idcel,idcel2,idcel3)
+        allocate(idcel(nm),idcel2(nm),idcel3(nm))
 	end if
 	read (10,'(A)') cdum
 	read (10,'(A)') cdum
 	do i=1,nm
-		read(10,*) idcel(i),idsm(i),rdum,rdum,(emiA(k,i,j),j=1,nscc(k))
+		read(10,*) idcel(i),idsm(k,i),rdum,rdum,(emiA(k,i,j),j=1,nscc(k))
+      id5(k,i)=idcel(i)
 	        !print *,idcel(i),idsm(i),(emiA(k,i,j),j=1,16),nscc(k),k
 	end do
     idcel3=idcel
@@ -251,18 +259,19 @@ subroutine lee
     inquire(18,opened=fil1)
 
     if(.not.fil1) then
-	  open(unit=18,file=nfile,status='OLD',action='read')
+open(unit=18,file=nfile,status='OLD',action='read')
 	else
 	  rewind(18)
 	end if
 !
 	read (18,'(A)') cdum
+
 !dir$ loop count min(256)
      do
 	    read(18,*,END=230)jscc,(itfrc(l),l=1,25)
     dias: do i=1,nscc(k)
 	      if(jscc.eq.profile(3,i,k)) then
-            m=4
+            m=4-iverano
             do l=1,nh
             if(m+l.gt.nh) then
               hEST(i,k,m+l-nh)=real(itfrc(l))/real(itfrc(25))*diap(i,k)
@@ -270,7 +279,7 @@ subroutine lee
               hEST(i,k,m+l)=real(itfrc(l))/real(itfrc(25))*dia(i,k)
             end if
             end do
-		    m=5
+		    m=5-iverano
 		    do l=1,nh
 			if(m+l.gt.nh) then
               hCST(i,k,m+l-nh)=real(itfrc(l))/real(itfrc(25))*diap(i,k)
@@ -278,7 +287,7 @@ subroutine lee
               hCST(i,k,m+l)=real(itfrc(l))/real(itfrc(25))*dia(i,k)
             end if
             end do
-            m=6
+          m=6-iverano
             do l=1,nh
             if(m+l.gt.nh) then
               hMST(i,k,m+l-nh)=real(itfrc(l))/real(itfrc(25))*diap(i,k)
@@ -286,7 +295,7 @@ subroutine lee
               hMST(i,k,m+l)=real(itfrc(l))/real(itfrc(25))*dia(i,k)
             end if
             end do
-            m=7
+            m=7-iverano
             do l=1,nh
             if(m+l.gt.nh) then
               hPST(i,k,m+l-nh)=real(itfrc(l))/real(itfrc(25))*diap(i,k)
@@ -313,7 +322,7 @@ print *,'   Done ',nfile,daytype,maxval(hCST)!,maxval(hPST),maxval(hMST)
         read(19,*,END=240)jscc,(itfrc(l),l=1,25)
     fds: do i=1,nscc(k)
          if(jscc.eq.profile(3,i,k)) then
-            m=4
+            m=4-iverano
             do l=1,nh
          if(daytype.eq.1 )then
             if(m+l.gt.nh) then
@@ -327,7 +336,7 @@ print *,'   Done ',nfile,daytype,maxval(hCST)!,maxval(hPST),maxval(hMST)
             end if
           end if  ! daytype
             end do
-           m=5
+           m=5-iverano
            do l=1,nh
            if(daytype.eq.1) then
              if(m+l.gt.nh) then
@@ -341,7 +350,7 @@ print *,'   Done ',nfile,daytype,maxval(hCST)!,maxval(hPST),maxval(hMST)
             end if
            end if !daytype
            end do
-           m=6
+           m=6-iverano
            do l=1,nh
             if(daytype.eq.1) then
              if(m+l.gt.nh) then
@@ -355,7 +364,7 @@ print *,'   Done ',nfile,daytype,maxval(hCST)!,maxval(hPST),maxval(hMST)
               end if
             end if !daytype
            end do
-           m=7
+           m=7-iverano
            do l=1,nh
              if(daytype.eq.1 )then
                  if(m+l.gt.nh) then
@@ -409,14 +418,14 @@ subroutine compute
       print *,efile(k)
 !dir$ loop count min(512)
 	  do ii=1,size(idcel2)
-	  do i=1,nm
-		 if(idcel2(ii).eq.idcel(i))then
+	  do i=1,size(id5,2)
+		 if(idcel2(ii).eq.id5(k,i))then
 		  do l=1,nh
 	        do j=1,nscc(k)
-    if(idsm(i).eq.5) emis(ii,k,l)=emis(ii,k,l)+emiA(k,i,j)*mes(j,k)*hEST(j,k,l)
-    if(idsm(i).eq.6) emis(ii,k,l)=emis(ii,k,l)+emiA(k,i,j)*mes(j,k)*hCST(j,k,l)
-    if(idsm(i).eq.7) emis(ii,k,l)=emis(ii,k,l)+emiA(k,i,j)*mes(j,k)*hMST(j,k,l)
-    if(idsm(i).eq.8) emis(ii,k,l)=emis(ii,k,l)+emiA(k,i,j)*mes(j,k)*hPST(j,k,l)
+    if(idsm(k,i).eq.5) emis(ii,k,l)=emis(ii,k,l)+emiA(k,i,j)*mes(j,k)*hEST(j,k,l)
+    if(idsm(k,i).eq.6) emis(ii,k,l)=emis(ii,k,l)+emiA(k,i,j)*mes(j,k)*hCST(j,k,l)
+    if(idsm(k,i).eq.7) emis(ii,k,l)=emis(ii,k,l)+emiA(k,i,j)*mes(j,k)*hMST(j,k,l)
+    if(idsm(k,i).eq.8) emis(ii,k,l)=emis(ii,k,l)+emiA(k,i,j)*mes(j,k)*hPST(j,k,l)
 		    end do
 		  end do
 		  end if
@@ -430,14 +439,14 @@ subroutine compute
     epm2=0
 	k=nf-1
    do ii=1,size(idcel2)
-    do i=1,nm
-    if(idcel2(ii).eq.idcel(i))then
+    do i=1,size(id5,2)
+    if(idcel2(ii).eq.id5(k,i))then
 		  do l=1,nh
 	        do j=1,nscc(k)
-    if(idsm(i).eq.5) epm2(ii,j,l)=epm2(ii,j,l)+emiA(k,i,j)*mes(j,k)*hEST(j,k,l)
-    if(idsm(i).eq.6) epm2(ii,j,l)=epm2(ii,j,l)+emiA(k,i,j)*mes(j,k)*hCST(j,k,l)
-    if(idsm(i).eq.7) epm2(ii,j,l)=epm2(ii,j,l)+emiA(k,i,j)*mes(j,k)*hMST(j,k,l)
-    if(idsm(i).eq.8) epm2(ii,j,l)=epm2(ii,j,l)+emiA(k,i,j)*mes(j,k)*hPST(j,k,l)
+    if(idsm(k,i).eq.5) epm2(ii,j,l)=epm2(ii,j,l)+emiA(k,i,j)*mes(j,k)*hEST(j,k,l)
+    if(idsm(k,i).eq.6) epm2(ii,j,l)=epm2(ii,j,l)+emiA(k,i,j)*mes(j,k)*hCST(j,k,l)
+    if(idsm(k,i).eq.7) epm2(ii,j,l)=epm2(ii,j,l)+emiA(k,i,j)*mes(j,k)*hMST(j,k,l)
+    if(idsm(k,i).eq.8) epm2(ii,j,l)=epm2(ii,j,l)+emiA(k,i,j)*mes(j,k)*hPST(j,k,l)
 		    end do
 		  end do
       end if
@@ -451,14 +460,14 @@ subroutine compute
 
 print *,"   Compute  VOCs",size(idcel2)
    do ii=1,size(idcel2)
-    do i=1,nm
-     if(idcel2(ii).eq.idcel(i))then
+    do i=1,size(id5,2)
+     if(idcel2(ii).eq.id5(k,i))then
 		  do l=1,nh
 	        do j=1,nscc(k)
-    if(idsm(i).eq.5) evoc(ii,j,l)=evoc(ii,j,l)+emiA(nf,i,j)*mes(j,nf)*hEST(j,nf,l)
-    if(idsm(i).eq.6) evoc(ii,j,l)=evoc(ii,j,l)+emiA(nf,i,j)*mes(j,nf)*hCST(j,nf,l)
-    if(idsm(i).eq.7) evoc(ii,j,l)=evoc(ii,j,l)+emiA(nf,i,j)*mes(j,nf)*hMST(j,nf,l)
-    if(idsm(i).eq.8) evoc(ii,j,l)=evoc(ii,j,l)+emiA(nf,i,j)*mes(j,nf)*hPST(j,nf,l)
+    if(idsm(k,i).eq.5) evoc(ii,j,l)=evoc(ii,j,l)+emiA(nf,i,j)*mes(j,nf)*hEST(j,nf,l)
+    if(idsm(k,i).eq.6) evoc(ii,j,l)=evoc(ii,j,l)+emiA(nf,i,j)*mes(j,nf)*hCST(j,nf,l)
+    if(idsm(k,i).eq.7) evoc(ii,j,l)=evoc(ii,j,l)+emiA(nf,i,j)*mes(j,nf)*hMST(j,nf,l)
+    if(idsm(k,i).eq.8) evoc(ii,j,l)=evoc(ii,j,l)+emiA(nf,i,j)*mes(j,nf)*hPST(j,nf,l)
 		    end do
 		  end do
       end if
@@ -475,16 +484,21 @@ print *,"   Compute  VOCs",size(idcel2)
 subroutine storage
   implicit none
   integer i,j,k,l
+  real suma
   character(len=3):: cdia(7)
   data cdia/'MON','TUE','WND','THR','FRD','SAT','SUN'/
- print *,"Storage"
+  print *,"Storage"
   do k=1,nf-2
    open(unit=10,file=casn(k),action='write')
    write(10,*)casn(k),'ID, Hr to Hr24'
-   write(10,'(I8,4A)')size(emis,dim=1),",",current_date,', ',cdia(daytype)
+   write(10,'(I8,4A)')size(emis,dim=1),",",current_date,", ",cdia(daytype)
    do i=1,size(emis,dim=1)
-     write(10,100)idcel2(i),(emis(i,k,l),l=1,nh)
-   end do
+    suma=0
+    do l=1,nh
+        suma=suma+emis(i,k,l)
+    end do
+        if(suma.gt.0) write(10,100)idcel2(i),(emis(i,k,l),l=1,nh)
+    end do
    close(unit=10)
   end do
 100 format(I7,",",23(ES12.3,","),ES12.3)
@@ -496,7 +510,11 @@ subroutine storage
    write(10,'(I8,4A)')size(epm2,dim=1)*nscc(k),",",current_date,', ',cdia(daytype)
    do i=1,size(epm2,dim=1)
      do j=1,nscc(k)
-     write(10,110)idcel2(i),iscc(j),(epm2(i,j,l),l=1,nh)
+     suma=0
+     do l=1,nh
+       suma=suma+epm2(i,j,l)
+     end do
+     if(suma.gt.0)  write(10,110)idcel2(i),iscc(j),(epm2(i,j,l),l=1,nh)
      end do
    end do
 	close(10)
@@ -508,12 +526,17 @@ subroutine storage
    write(10,'(I8,4A)')size(evoc,dim=1)*nscc(k),",",current_date,', ',cdia(daytype)
    do i=1,size(evoc,dim=1)
      do j=1,nscc(k)
-     write(10,110)idcel2(i),iscc(j),(evoc(i,j,l),l=1,nh)
+     suma=0
+     do l=1,nh
+       suma=suma+evoc(i,j,l)
+     end do
+     if(suma.gt.0) write(10,110)idcel2(i),iscc(j),(evoc(i,j,l),l=1,nh)
      end do
    end do
 	close(10)
     print *,"*****  DONE Temporal Area *****"
 110 format(I7,",",I10,",",23(ES12.3,","),ES12.3)
+    deallocate(idcel,id5,idcel2,idsm,emiA,emis,epm2,evoc)
 end subroutine storage
 !                       _
 !  ___ ___  _   _ _ __ | |_
@@ -562,23 +585,26 @@ end subroutine count
 ! |_| |_|\__,_|___/\___/___|_| |_|\___/|_|  \__,_|_|  |_|\___/
 !                     |_____|
 subroutine huso_horario
-    integer ::i,iedo
+    integer ::i,k,iedo
     print *,'Start uso horario'
-    do i=1,nm
-        iedo=int(idsm(i)/1000)
-        idsm(i)=6
-        if(iedo.eq.2 .or.iedo.eq.3) idsm(i)=8
-        if(iedo.eq.8 .or.iedo.eq.18 .and.iedo.eq.25 .and.iedo.eq.26)idsm(i)=7
-        if(iedo.eq.23) idsm(i)=5
+    do k=1,nf
+       do i=1,nm
+        iedo=int(idsm(k,i)/1000)
+        idsm(k,i)=6
+        if(iedo.eq.2 .or.iedo.eq.3) idsm(k,i)=8
+        if(iedo.eq.8 .or.iedo.eq.18 .and.iedo.eq.25 .and.iedo.eq.26)idsm(k,i)=7
+        if(iedo.eq.23) idsm(k,i)=5
+       end do
     end do
     if(maxval(idsm).ge.9 ) then
-        print *,'Error item:', MAXLOC(idsm),'value:', idsm(MAXLOC(idsm)),maxval(idsm)
+        print *,'Error item:', MAXLOC(idsm),'value:',maxval(idsm)
         STOP 'Value must be less or equal to 8'
     end if
     if(minval(idsm).le. 4 ) then
-        print *,'Error item:', MINLOC(idsm),'value:', idsm(MINLOC(idsm)),minval(idsm)
+        print *,'Error item:', MINLOC(idsm),'value:',minval(idsm)
         STOP 'Value must be larger or equal to 5'
     end if
+print *,'** END uso horario'
 end subroutine huso_horario
 !  _                          _
 ! | |__  _ __  ___  ___  _ __| |_
@@ -654,15 +680,47 @@ subroutine piksrt(n)
 INTEGER n
 integer i,j
 real a
-do j=2,N
-a=idcel3(j)
-do i=j-1,1,-1
-if(idcel3(i).le.a) goto 10
-idcel3(i+1)=idcel3(i)
-end do
-i=0
-10 idcel3(i+1)=a
-end do
+  do j=2,N
+  a=idcel3(j)
+    do i=j-1,1,-1
+      if(idcel3(i).le.a) goto 10
+      idcel3(i+1)=idcel3(i)
+    end do
+  i=0
+  10 idcel3(i+1)=a
+  end do
 return
 end subroutine piksrt
+!  _  ____   _____ ___    _   _  _  ___
+! | |/ /\ \ / / __| _ \  /_\ | \| |/ _ \
+! | ' <  \ V /| _||   / / _ \| .` | (_) |
+! |_|\_\  \_/ |___|_|_\/_/ \_\_|\_|\___/
+!
+integer function kverano(ida,mes)
+    implicit none
+    integer, intent(in):: ida,mes
+
+    if (mes.lt.4  .or. mes .gt.10)then
+        kverano = 0
+        return
+    end if
+    if (mes.gt.4 .and. mes .lt.10) then
+        kverano = 1
+        write(6, 233)
+        return
+    end if
+    if (mes.eq.4 .and. ida .ge. 6) then
+      kverano = 1
+      write(6, 233)
+      return
+    elseif (mes.eq.10 .and. ida .le. 26) then
+      kverano = 1
+      write(6, 233)
+      return
+     else
+      kverano =0
+      return
+    end if
+233 format("******  HORARIO de VERANO *******")
+end function
 end program atemporal
